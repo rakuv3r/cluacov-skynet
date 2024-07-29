@@ -3,6 +3,42 @@
 #include "lua.h"
 #include "lauxlib.h"
 
+#include <unistd.h>
+
+static int lua_file_exists(lua_State *L, const char *filename) {
+    return access(filename, F_OK) != -1;
+}
+
+static int lua_get_SKYNET_LUACOV_COVERAGE_DATA(lua_State *L, const char *name, lua_Integer line_nr) {
+    lua_getglobal(L, "_G");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return 0;
+    }
+    lua_getfield(L, -1, "__SKYNET_LUACOV_COVERAGE_DATA");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 2);
+        return 0;
+    }
+
+    lua_getfield(L, -1, name);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 3);
+        return 0;
+    }
+
+    lua_pushinteger(L, line_nr);
+    lua_gettable(L, -2);
+
+    if (lua_isnil(L, -1)) {
+        lua_pop(L, 4);
+        return 0;
+    }
+
+    lua_pop(L, 4);
+    return 1;
+}
+
 static const char *get_source_filename(lua_State *L, lua_Integer level) {
     lua_Debug ar;
 
@@ -34,6 +70,7 @@ static int l_debug_hook(lua_State *L) {
     lua_Integer hits, max_hits;
     lua_Integer steps_after_save, save_step_size;
     lua_Integer level;
+    const char *report_get_file;
 
     line_nr = luaL_checkinteger(L, 2);
     level = luaL_optinteger(L, 3, 2);
@@ -50,6 +87,15 @@ static int l_debug_hook(lua_State *L) {
     filename = get_source_filename(L, level);
 
     if (filename == NULL) {
+        return 0;
+    }
+
+    lua_getfield(L, lua_upvalueindex(1), "configuration");
+    lua_getfield(L, -1, "report_get_file");
+    report_get_file = lua_tostring(L, -1);
+    lua_pop(L, 2);
+
+    if (report_get_file && !lua_file_exists(L, report_get_file) && lua_get_SKYNET_LUACOV_COVERAGE_DATA(L, filename, line_nr)) {
         return 0;
     }
 
